@@ -57,14 +57,14 @@ server_transfer(From, Name, To, Message, Asistentes_List) ->
 
 %% Metodos de Asistentes %%
 registra_asistente(Asistente, Nombre) ->
-  case whereis(asist_client) of
+  case whereis(Asistente) of
     undefined ->
-      register(asist_client, spawn(sistema, asistente, [server_node(), Asistente, Nombre]));
+      register(Asistente, spawn(sistema, asistente, [server_node(), Asistente, Nombre]));
     _ -> already_logged_on
   end.
 
 elimina_asistente(Asistente)->
-  asist_client ! {logoff, Asistente}.
+  Asistente ! {logoff, Asistente}.
 
 asistente(Server_Node, Asistente, Nombre) ->
   {sistema, Server_Node} ! {self(), registra, Asistente, Nombre},
@@ -86,9 +86,9 @@ asistente(Server_Node) ->
 
 await_result() ->
   receive
-      {messenger, stop, Why} ->
+      {sistema, stop, Why} ->
         io:format("~p~n", [Why]),
         exit(normal);
-      {messenger, What} ->
+      {sistema, What} ->
         io:format("~p~n", [What])
   end.
