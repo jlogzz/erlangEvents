@@ -2,7 +2,7 @@
 -export([start_server/0, server/1, logon/1, logoff/0, message/2, client/2]).
 
 server_node() ->
-  messenger@super.
+  super@IkerArbuluMac.
 
 server(User_List) ->
   receive
