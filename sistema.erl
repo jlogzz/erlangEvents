@@ -13,11 +13,19 @@ server(Asistentes_List) ->
       server(New_Asistente_List);
     {Asistente, logoff} ->
       New_Asistente_List  = server_logoff(Asistente, Asistentes_List),
-      server(New_Asistente_List);
-    {From, message_to, To, Message} ->
-      server_transfer(From, To, Message, Asistentes_List),
-      io:format("list is now: ~p~n", [Asistentes_List]),
-      server(Asistentes_List)
+      server(New_Asistente_List)
+    %{From, desinscribe, Asistente, Conferencia}->
+      % Falta incluir metodos para atender a la Conferencia
+      %;
+    %{From, inscribe, Asistente, Conferencia}->
+      % Falta incluir metodos para desinscribir la Conferencia
+      %;
+    %{From, registra_conf, Conferencia, Titulo, Conferencista, Horario, Cupo}->
+      % Falta incluir metodo para registrar la conferencia
+      %;
+    %{From, inscritos, Conferencia}->
+      %Falta incluir metodo para sacar los registrados a la conferencia
+      %;
   end.
 
 %% Arrancar el servidor
@@ -38,23 +46,6 @@ registra_asistente_servidor(From, Asistente, Nombre, Asistentes_List) ->
 server_logoff(Asistente, Asistentes_List) ->
   lists:keydelete(Asistente, 2, Asistentes_List).
 
-server_transfer(From, To, Message, Asistentes_List) ->
-  case lists:keysearch(From, 1, Asistentes_List) of
-    false ->
-      From ! {sistema, stop, you_are_not_logged_on};
-    {value, {From, Name}} ->
-      server_transfer(From, Name, To, Message, Asistentes_List)
-  end.
-
-server_transfer(From, Name, To, Message, Asistentes_List) ->
-  case lists:keysearch(To, 2, Asistentes_List) of
-    false ->
-      From ! {sistema, receiver_not_found};
-    {value, {ToPid, To}} ->
-      ToPid ! {message_from, Name, Message},
-      From ! {messenger, sent}
-  end .
-
 %% Metodos de Asistentes %%
 registra_asistente(Asistente, Nombre) ->
   case whereis(Asistente) of
@@ -66,6 +57,15 @@ registra_asistente(Asistente, Nombre) ->
 elimina_asistente(Asistente)->
   Asistente ! {logoff, Asistente}.
 
+inscribe_conferencia(Asistente, Conferencia) ->
+  Asistente ! {inscribe, Asistente, Conferencia}.
+
+desinscribe_conferencia(Asistente, Conferencia) ->
+  Asistente ! {desinscribe, Asistente, Conferencia}.
+
+conferencias_inscritas(Asistente) ->
+  Asistente ! {inscritas, Asistente}.
+
 asistente(Server_Node, Asistente, Nombre) ->
   {sistema, Server_Node} ! {self(), registra, Asistente, Nombre},
   await_result(),
@@ -76,11 +76,12 @@ asistente(Server_Node) ->
     {logoff, Asistente} -> %% Falta hacer la eliminacion de eventos por eso se incluye el id del asistente
       {sistema, Server_Node} ! {Asistente, logoff},
       exit(normal);
-    {message_to, ToName, Message} ->
-      {messenger, Server_Node} ! {self(), message_to, ToName, Message},
+    {inscribe, Asistente, Conferencia} ->
+      {sistema, Server_Node} ! {self(), inscribe, Asistente, Conferencia},
       await_result();
-    {message_from, FromName, Message} ->
-      io:format("Message from ~p: ~p~n", [FromName, Message])
+    {desinscribe, Asistente, Conferencia} ->
+      {sistema, Server_Node} ! {self(), desinscribe, Asistente, Conferencia},
+      await_result()
   end,
   asistente(Server_Node).
 
@@ -92,3 +93,33 @@ await_result() ->
       {sistema, What} ->
         io:format("~p~n", [What])
   end.
+
+%% Metodos de Conferencias %%
+registra_conferencia(Conferencia, Titulo, Conferencista, Horario, Cupo) ->
+  case whereis(Conferencia) of
+    undefined ->
+      register(Conferencia, spawn(sistema, conferencia, [server_node(), Conferencia, Titulo, Conferencista, Horario, Cupo]));
+    _ -> already_created
+  end.
+
+elimina_conferencia(Conferencia) ->
+  Conferencia ! {elimina, Conferencia}.
+
+conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
+  {sistema, Server_Node} ! {self(), registra_conf, Conferencia, Titulo, Conferencista, Horario, Cupo},
+  await_result(),
+  conferencia(Server_Node).
+
+ asistentes_inscritos(Conferencia) ->
+   Conferencia ! {inscritos, Conferencia}.
+
+conferencia(Server_Node) ->
+  receive
+    {elimina, Conferencia} -> %% Falta hacer la eliminacion de eventos por eso se incluye el id del asistente
+      {sistema, Server_Node} ! {Conferencia, elimina},
+      exit(normal);
+    {inscritos, Conferencia} ->
+      {sistema, Server_Node} ! {self(), inscritos, Conferencia},
+      await_result()
+  end,
+  conferencia(Server_Node).
