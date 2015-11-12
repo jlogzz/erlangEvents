@@ -11,8 +11,8 @@ server(Asistentes_List) ->
     {From, registra, Asistente, Nombre} ->
       New_Asistente_List = registra_asistente_servidor(From, Asistente, Nombre, Asistentes_List),
       server(New_Asistente_List);
-    {From, logoff} ->
-      New_Asistente_List  = server_logoff(From, Asistentes_List),
+    {Asistente, logoff} ->
+      New_Asistente_List  = server_logoff(Asistente, Asistentes_List),
       server(New_Asistente_List);
     {From, message_to, To, Message} ->
       server_transfer(From, To, Message, Asistentes_List),
@@ -35,8 +35,8 @@ registra_asistente_servidor(From, Asistente, Nombre, Asistentes_List) ->
       [{From, Asistente, Nombre} | Asistentes_List]
   end.
 
-server_logoff(From, Asistentes_List) ->
-  lists:keydelete(From, 1, Asistentes_List).
+server_logoff(Asistente, Asistentes_List) ->
+  lists:keydelete(Asistente, 2, Asistentes_List).
 
 server_transfer(From, To, Message, Asistentes_List) ->
   case lists:keysearch(From, 1, Asistentes_List) of
@@ -74,7 +74,7 @@ asistente(Server_Node, Asistente, Nombre) ->
 asistente(Server_Node) ->
   receive
     {logoff, Asistente} -> %% Falta hacer la eliminacion de eventos por eso se incluye el id del asistente
-      {sistema, Server_Node} ! {self(), logoff},
+      {sistema, Server_Node} ! {Asistente, logoff},
       exit(normal);
     {message_to, ToName, Message} ->
       {messenger, Server_Node} ! {self(), message_to, ToName, Message},
