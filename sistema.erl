@@ -1,28 +1,33 @@
 -module(sistema).
--export([start_server/0, server/1, registra_asistente/2, elimina_asistente/1, asistente/3]).
+-export([start_server/0, server/2, lista_asistentes/0, registra_asistente/2, elimina_asistente/1, asistente/3, registra_conferencia/5, elimina_conferencia/1, conferencia/6]).
 
 %% Variable para el nombre del servidor
 server_node() ->
-  super@IkerArbuluMac.
+  super@JLO.
 
 %% Casos de mensajes que puede recibir el servidor
-server(Asistentes_List) ->
+server(Asistentes_List, Conferencia_List) ->
   receive
+    {asistentes, lista_asistentes} ->
+      lista_asistentes_servidor(Asistentes_List);
     {From, registra, Asistente, Nombre} ->
       New_Asistente_List = registra_asistente_servidor(From, Asistente, Nombre, Asistentes_List),
-      server(New_Asistente_List);
+      server(New_Asistente_List, Conferencia_List);
     {Asistente, logoff} ->
       New_Asistente_List  = server_logoff(Asistente, Asistentes_List),
-      server(New_Asistente_List)
+      server(New_Asistente_List, Conferencia_List);
     %{From, desinscribe, Asistente, Conferencia}->
       % Falta incluir metodos para atender a la Conferencia
       %;
     %{From, inscribe, Asistente, Conferencia}->
       % Falta incluir metodos para desinscribir la Conferencia
       %;
-    %{From, registra_conf, Conferencia, Titulo, Conferencista, Horario, Cupo}->
-      % Falta incluir metodo para registrar la conferencia
-      %;
+    {From, registra_conferencia, Conferencia, Titulo, Conferencista, Horario, Cupo}->
+      New_Conferencia_List =  registra_conferencia_servidor(From, Conferencia, Titulo, Conferencista, Horario, Cupo, Conferencia_List),
+      server(Asistentes_List, New_Conferencia_List);
+    {Conferencia, elimina_conferencia} ->
+      New_Conferencia_List = elimina_conferencia_servidor(Conferencia, Conferencia_List),
+      server(Asistentes_List, New_Conferencia_List)
     %{From, inscritos, Conferencia}->
       %Falta incluir metodo para sacar los registrados a la conferencia
       %;
@@ -30,7 +35,13 @@ server(Asistentes_List) ->
 
 %% Arrancar el servidor
 start_server() ->
-  register(sistema, spawn(sistema, server, [[]])).
+  register(sistema, spawn(sistema, server, [[], []])).
+
+lista_asistentes() ->
+  {sistema, server_node()} ! {asistentes, lista_asistentes}.
+
+lista_asistentes_servidor(Asistentes_List) ->
+  io:format("Asistentes: ~p~n", [Asistentes_List]).
 
 %% Se lleva a cabo el registro de Asistentes en el Servidor
 registra_asistente_servidor(From, Asistente, Nombre, Asistentes_List) ->
@@ -40,11 +51,24 @@ registra_asistente_servidor(From, Asistente, Nombre, Asistentes_List) ->
       Asistentes_List;
     false ->
       From ! {sistema, registrado},
-      [{From, Asistente, Nombre} | Asistentes_List]
+      [{From, Asistente, #{asistente=>Asistente, nombre=>Nombre, conferencias=>[]}} | Asistentes_List]
   end.
+
+registra_conferencia_servidor(From, Conferencia, Titulo, Conferencista, Horario, Cupo, Conferencia_List) ->
+    case lists:keymember(Conferencia, 2, Conferencia_List) of
+      true ->
+        From ! {sistema, stop, conferencia_exists_at_other_node},
+        Conferencia_List;
+      false ->
+        From ! {sistema, registrado},
+        [{From, Conferencia, #{conferencia=>Conferencia, titulo=>Titulo, conferencista=>Conferencista, horario=>Horario, cupo=>Cupo, asistentes=>[]}} | Conferencia_List]
+    end.
 
 server_logoff(Asistente, Asistentes_List) ->
   lists:keydelete(Asistente, 2, Asistentes_List).
+
+elimina_conferencia_servidor(Conferencia, Conferencia_List) ->
+  lists:keydelete(Conferencia, 2, Conferencia_List).
 
 %% Metodos de Asistentes %%
 registra_asistente(Asistente, Nombre) ->
@@ -55,7 +79,12 @@ registra_asistente(Asistente, Nombre) ->
   end.
 
 elimina_asistente(Asistente)->
-  Asistente ! {logoff, Asistente}.
+  case whereis(Asistente) of
+    undefined ->
+      no_such_asistente;
+    _ ->
+      Asistente ! {logoff, Asistente}
+  end.
 
 inscribe_conferencia(Asistente, Conferencia) ->
   Asistente ! {inscribe, Asistente, Conferencia}.
@@ -75,6 +104,7 @@ asistente(Server_Node) ->
   receive
     {logoff, Asistente} -> %% Falta hacer la eliminacion de eventos por eso se incluye el id del asistente
       {sistema, Server_Node} ! {Asistente, logoff},
+      unregister(Asistente),
       exit(normal);
     {inscribe, Asistente, Conferencia} ->
       {sistema, Server_Node} ! {self(), inscribe, Asistente, Conferencia},
@@ -103,20 +133,26 @@ registra_conferencia(Conferencia, Titulo, Conferencista, Horario, Cupo) ->
   end.
 
 elimina_conferencia(Conferencia) ->
-  Conferencia ! {elimina, Conferencia}.
+  case whereis(Conferencia) of
+    undefined ->
+      no_such_conference;
+    _ ->
+      Conferencia ! {elimina, Conferencia}
+  end.
 
 conferencia(Server_Node, Conferencia, Titulo, Conferencista, Horario, Cupo) ->
-  {sistema, Server_Node} ! {self(), registra_conf, Conferencia, Titulo, Conferencista, Horario, Cupo},
+  {sistema, Server_Node} ! {self(), registra_conferencia, Conferencia, Titulo, Conferencista, Horario, Cupo},
   await_result(),
   conferencia(Server_Node).
 
- asistentes_inscritos(Conferencia) ->
-   Conferencia ! {inscritos, Conferencia}.
+asistentes_inscritos(Conferencia) ->
+  Conferencia ! {inscritos, Conferencia}.
 
 conferencia(Server_Node) ->
   receive
     {elimina, Conferencia} -> %% Falta hacer la eliminacion de eventos por eso se incluye el id del asistente
-      {sistema, Server_Node} ! {Conferencia, elimina},
+      {sistema, Server_Node} ! {Conferencia, elimina_conferencia},
+      unregister(Conferencia),
       exit(normal);
     {inscritos, Conferencia} ->
       {sistema, Server_Node} ! {self(), inscritos, Conferencia},
