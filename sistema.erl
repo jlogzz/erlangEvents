@@ -1,5 +1,5 @@
 -module(sistema).
--export([start_server/0, server/2, lista_asistentes/0, registra_asistente/2, elimina_asistente/1, asistente/3, registra_conferencia/5, elimina_conferencia/1, conferencia/6]).
+-export([start_server/0, server/2, lista_asistentes/0, lista_conferencias/0, registra_asistente/2, elimina_asistente/1, asistente/3, registra_conferencia/5, elimina_conferencia/1, conferencia/6]).
 
 %% Variable para el nombre del servidor
 server_node() ->
@@ -8,8 +8,16 @@ server_node() ->
 %% Casos de mensajes que puede recibir el servidor
 server(Asistentes_List, Conferencia_List) ->
   receive
+    {link, PID} ->
+      monitor(process, PID),
+      io:format("linkeado~n"),
+      server(Asistentes_List, Conferencia_List);
     {asistentes, lista_asistentes} ->
-      lista_asistentes_servidor(Asistentes_List);
+      lista_asistentes_servidor(Asistentes_List),
+      server(Asistentes_List, Conferencia_List);
+    {conferencias, lista_conferencias} ->
+      lista_conferencia_servidor(Conferencia_List),
+      server(Asistentes_List, Conferencia_List);
     {From, registra, Asistente, Nombre} ->
       New_Asistente_List = registra_asistente_servidor(From, Asistente, Nombre, Asistentes_List),
       server(New_Asistente_List, Conferencia_List);
@@ -27,21 +35,34 @@ server(Asistentes_List, Conferencia_List) ->
       server(Asistentes_List, New_Conferencia_List);
     {Conferencia, elimina_conferencia} ->
       New_Conferencia_List = elimina_conferencia_servidor(Conferencia, Conferencia_List),
-      server(Asistentes_List, New_Conferencia_List)
+      server(Asistentes_List, New_Conferencia_List);
     %{From, inscritos, Conferencia}->
       %Falta incluir metodo para sacar los registrados a la conferencia
       %;
+    {'DOWN', Ref, process, Pid2, Reason} ->
+            io:format("client exiting, got ~p~n", [{'DOWN', Ref, process, Pid2, Reason}]),
+            New_Asistentes_List = server_killproc(Pid2, Asistentes_List),
+            New_Conferencia_List = server_killproc(Pid2, Conferencia_List),
+            server(New_Asistentes_List, New_Conferencia_List)
+
   end.
 
 %% Arrancar el servidor
 start_server() ->
+  process_flag(trap_exit, true),
   register(sistema, spawn(sistema, server, [[], []])).
 
 lista_asistentes() ->
   {sistema, server_node()} ! {asistentes, lista_asistentes}.
 
+lista_conferencias() ->
+  {sistema, server_node()} ! {conferencias, lista_conferencias}.
+
 lista_asistentes_servidor(Asistentes_List) ->
   io:format("Asistentes: ~p~n", [Asistentes_List]).
+
+lista_conferencia_servidor(Conferencia_List) ->
+  io:format("Conferencias: ~p~n", [Conferencia_List]).
 
 %% Se lleva a cabo el registro de Asistentes en el Servidor
 registra_asistente_servidor(From, Asistente, Nombre, Asistentes_List) ->
@@ -67,6 +88,9 @@ registra_conferencia_servidor(From, Conferencia, Titulo, Conferencista, Horario,
 server_logoff(Asistente, Asistentes_List) ->
   lists:keydelete(Asistente, 2, Asistentes_List).
 
+server_killproc(PID, List) ->
+    lists:keydelete(PID, 1, List).
+
 elimina_conferencia_servidor(Conferencia, Conferencia_List) ->
   lists:keydelete(Conferencia, 2, Conferencia_List).
 
@@ -74,7 +98,10 @@ elimina_conferencia_servidor(Conferencia, Conferencia_List) ->
 registra_asistente(Asistente, Nombre) ->
   case whereis(Asistente) of
     undefined ->
-      register(Asistente, spawn(sistema, asistente, [server_node(), Asistente, Nombre]));
+      process_flag(trap_exit, true),
+      PID = spawn(sistema, asistente, [server_node(), Asistente, Nombre]),
+      register(Asistente, PID),
+      {sistema, server_node()} ! {link, PID};
     _ -> already_logged_on
   end.
 
@@ -128,7 +155,10 @@ await_result() ->
 registra_conferencia(Conferencia, Titulo, Conferencista, Horario, Cupo) ->
   case whereis(Conferencia) of
     undefined ->
-      register(Conferencia, spawn(sistema, conferencia, [server_node(), Conferencia, Titulo, Conferencista, Horario, Cupo]));
+      process_flag(trap_exit, true),
+      PID = spawn(sistema, conferencia, [server_node(), Conferencia, Titulo, Conferencista, Horario, Cupo]),
+      register(Conferencia, PID),
+      {sistema, server_node()} ! {link, PID};
     _ -> already_created
   end.
 
