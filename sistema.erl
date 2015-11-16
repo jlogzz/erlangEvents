@@ -187,6 +187,12 @@ asistentes_inscritos(Conferencia) ->
 
 conferencia(Server_Node) ->
   receive
+    {monitor, PID} ->
+      monitor(process, PID),
+      io:format("link!");
+    {'DOWN', Ref, process, Pid2, Reason} ->
+            io:format("Server exiting, got ~p~n", [{'DOWN', Ref, process, Pid2, Reason}]),
+            exit(self(), kill);
     {elimina, Conferencia} -> %% Falta hacer la eliminacion de eventos por eso se incluye el id del asistente
       {sistema, Server_Node} ! {Conferencia, elimina_conferencia},
       unregister(Conferencia),
