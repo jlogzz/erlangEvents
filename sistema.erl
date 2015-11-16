@@ -11,6 +11,7 @@ server(Asistentes_List, Conferencia_List) ->
     {link, PID} ->
       monitor(process, PID),
       io:format("linkeado~n"),
+      PID ! {monitor, self()},
       server(Asistentes_List, Conferencia_List);
     {asistentes, lista_asistentes} ->
       lista_asistentes_servidor(Asistentes_List),
@@ -50,7 +51,7 @@ server(Asistentes_List, Conferencia_List) ->
 %% Arrancar el servidor
 start_server() ->
   process_flag(trap_exit, true),
-  register(sistema, spawn(sistema, server, [[], []])).
+  register(sistema, spawn_link(sistema, server, [[], []])).
 
 lista_asistentes() ->
   {sistema, server_node()} ! {asistentes, lista_asistentes}.
@@ -99,7 +100,7 @@ registra_asistente(Asistente, Nombre) ->
   case whereis(Asistente) of
     undefined ->
       process_flag(trap_exit, true),
-      PID = spawn(sistema, asistente, [server_node(), Asistente, Nombre]),
+      PID = spawn_link(sistema, asistente, [server_node(), Asistente, Nombre]),
       register(Asistente, PID),
       {sistema, server_node()} ! {link, PID};
     _ -> already_logged_on
@@ -129,6 +130,12 @@ asistente(Server_Node, Asistente, Nombre) ->
 
 asistente(Server_Node) ->
   receive
+    {monitor, PID} ->
+      monitor(process, PID),
+      io:format("link!");
+    {'DOWN', Ref, process, Pid2, Reason} ->
+            io:format("Server exiting, got ~p~n", [{'DOWN', Ref, process, Pid2, Reason}]),
+            exit(self(), kill);
     {logoff, Asistente} -> %% Falta hacer la eliminacion de eventos por eso se incluye el id del asistente
       {sistema, Server_Node} ! {Asistente, logoff},
       unregister(Asistente),
@@ -156,7 +163,7 @@ registra_conferencia(Conferencia, Titulo, Conferencista, Horario, Cupo) ->
   case whereis(Conferencia) of
     undefined ->
       process_flag(trap_exit, true),
-      PID = spawn(sistema, conferencia, [server_node(), Conferencia, Titulo, Conferencista, Horario, Cupo]),
+      PID = spawn_link(sistema, conferencia, [server_node(), Conferencia, Titulo, Conferencista, Horario, Cupo]),
       register(Conferencia, PID),
       {sistema, server_node()} ! {link, PID};
     _ -> already_created
