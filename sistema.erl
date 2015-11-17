@@ -1,5 +1,16 @@
 -module(sistema).
--export([start_server/0, server/2, lista_asistentes/0, lista_conferencias/0, registra_asistente/2, elimina_asistente/1, asistente/3, registra_conferencia/5, elimina_conferencia/1, conferencia/6]).
+-export([start_server/0,
+         server/2,
+         lista_asistentes/0,
+         lista_conferencias/0,
+         registra_asistente/2,
+         elimina_asistente/1,
+         asistente/3,
+         registra_conferencia/5,
+         elimina_conferencia/1,
+         conferencia/6,
+         inscribe_conferencia/2
+        ]).
 
 %% Variable para el nombre del servidor
 server_node() ->
@@ -28,9 +39,18 @@ server(Asistentes_List, Conferencia_List) ->
     %{From, desinscribe, Asistente, Conferencia}->
       % Falta incluir metodos para atender a la Conferencia
       %;
-    %{From, inscribe, Asistente, Conferencia}->
-      % Falta incluir metodos para desinscribir la Conferencia
-      %;
+    {From, inscribe, Asistente, Conferencia}->
+      case lists:keymember(Asistente, 2, Asistentes_List) and puede_asistir(Asistente, Asistentes_List) and lists:keymember(Conferencia, 2, Conferencia_List) and hay_cupo(Conferencia, Conferencia_List) of
+        true ->
+          New_Asistente_List   = inscribe_conferencia_asistente(Asistente, Conferencia, Asistentes_List),
+          New_Conferencia_List = inscribe_conferencia_conferencia(Asistente, Conferencia, Conferencia_List),
+          % New_Conferencia_List = Conferencia_List,
+          From ! {sistema, registrado_asistente_conferencia},
+          server(New_Asistente_List, New_Conferencia_List);
+        false ->
+          From ! {sistema, asistente_o_conferencia_incorrecto},
+          server(Asistentes_List, Conferencia_List)
+      end;
     {From, registra_conferencia, Conferencia, Titulo, Conferencista, Horario, Cupo}->
       New_Conferencia_List =  registra_conferencia_servidor(From, Conferencia, Titulo, Conferencista, Horario, Cupo, Conferencia_List),
       server(Asistentes_List, New_Conferencia_List);
@@ -86,6 +106,32 @@ registra_conferencia_servidor(From, Conferencia, Titulo, Conferencista, Horario,
         [{From, Conferencia, #{conferencia=>Conferencia, titulo=>Titulo, conferencista=>Conferencista, horario=>Horario, cupo=>Cupo, asistentes=>[]}} | Conferencia_List]
     end.
 
+hay_cupo(Conferencia, List) ->
+  Tuple = lists:keyfind(Conferencia, 2, List),
+  Map =  element(3, Tuple),
+  maps:get(cupo, Map) > length(maps:get(asistentes, Map)).
+
+puede_asistir(Asistente, List) ->
+  Tuple = lists:keyfind(Asistente, 2, List),
+  Map =  element(3, Tuple),
+  3 > length(maps:get(conferencias, Map)).
+
+inscribe_conferencia_asistente(Asistente, Conferencia, List) ->
+  Tuple = lists:keyfind(Asistente, 2, List),
+  Map =  element(3, Tuple),
+  NewConferencias = [Conferencia | maps:get(conferencias, Map)],
+  NewMap = maps:update(conferencias, NewConferencias, Map),
+  NewTuple = setelement(3, Tuple, NewMap),
+  lists:keyreplace(Asistente, 2, List, NewTuple).
+
+inscribe_conferencia_conferencia(Asistente, Conferencia, List) ->
+  Tuple = lists:keyfind(Conferencia, 2, List),
+  Map =  element(3, Tuple),
+  NewAsistentes = [Asistente | maps:get(asistentes, Map)],
+  NewMap = maps:update(asistentes, NewAsistentes, Map),
+  NewTuple = setelement(3, Tuple, NewMap),
+  lists:keyreplace(Conferencia, 2, List, NewTuple).
+
 server_logoff(Asistente, Asistentes_List) ->
   lists:keydelete(Asistente, 2, Asistentes_List).
 
@@ -132,7 +178,7 @@ asistente(Server_Node) ->
   receive
     {monitor, PID} ->
       monitor(process, PID),
-      io:format("link!");
+      io:format("link!~n");
     {'DOWN', Ref, process, Pid2, Reason} ->
             io:format("Server exiting, got ~p~n", [{'DOWN', Ref, process, Pid2, Reason}]),
             exit(self(), kill);
@@ -189,7 +235,7 @@ conferencia(Server_Node) ->
   receive
     {monitor, PID} ->
       monitor(process, PID),
-      io:format("link!");
+      io:format("link!~n");
     {'DOWN', Ref, process, Pid2, Reason} ->
             io:format("Server exiting, got ~p~n", [{'DOWN', Ref, process, Pid2, Reason}]),
             exit(self(), kill);
