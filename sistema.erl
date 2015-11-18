@@ -9,7 +9,10 @@
          registra_conferencia/5,
          elimina_conferencia/1,
          conferencia/6,
-         inscribe_conferencia/2
+         inscribe_conferencia/2,
+         desinscribe_conferencia/2,
+         conferencias_inscritas/1,
+         asistentes_inscritos/1
         ]).
 
 %% Variable para el nombre del servidor
@@ -36,9 +39,18 @@ server(Asistentes_List, Conferencia_List) ->
     {Asistente, logoff} ->
       New_Asistente_List  = server_logoff(Asistente, Asistentes_List),
       server(New_Asistente_List, Conferencia_List);
-    %{From, desinscribe, Asistente, Conferencia}->
-      % Falta incluir metodos para atender a la Conferencia
-      %;
+    {From, desinscribe, Asistente, Conferencia}->
+      case lists:keymember(Asistente, 2, Asistentes_List) and lists:keymember(Conferencia, 2, Conferencia_List) of
+        true ->
+          New_Asistente_List   = desinscribe_conferencia_asistente(Asistente, Conferencia, Asistentes_List),
+          New_Conferencia_List = desinscribe_conferencia_conferencia(Asistente, Conferencia, Conferencia_List),
+          % New_Conferencia_List = Conferencia_List,
+          From ! {sistema, eliminado_asistente_conferencia},
+          server(New_Asistente_List, New_Conferencia_List);
+        false ->
+          From ! {sistema, asistente_o_conferencia_incorrecto},
+          server(Asistentes_List, Conferencia_List)
+      end;
     {From, inscribe, Asistente, Conferencia}->
       case lists:keymember(Asistente, 2, Asistentes_List) and puede_asistir(Asistente, Asistentes_List) and lists:keymember(Conferencia, 2, Conferencia_List) and hay_cupo(Conferencia, Conferencia_List) of
         true ->
@@ -57,9 +69,12 @@ server(Asistentes_List, Conferencia_List) ->
     {Conferencia, elimina_conferencia} ->
       New_Conferencia_List = elimina_conferencia_servidor(Conferencia, Conferencia_List),
       server(Asistentes_List, New_Conferencia_List);
-    %{From, inscritos, Conferencia}->
-      %Falta incluir metodo para sacar los registrados a la conferencia
-      %;
+    {From, inscritos, Conferencia}->
+      asistentes_inscritos_servidor(From, Conferencia, Conferencia_List, Asistentes_List),
+      server(Asistentes_List, Conferencia_List);
+    {From, inscritas, Asistente}->
+      conferencias_inscritas_servidor(From, Asistente, Asistentes_List, Conferencia_List),
+      server(Asistentes_List, Conferencia_List);
     {'DOWN', Ref, process, Pid2, Reason} ->
             io:format("client exiting, got ~p~n", [{'DOWN', Ref, process, Pid2, Reason}]),
             New_Asistentes_List = server_killproc(Pid2, Asistentes_List),
@@ -84,6 +99,23 @@ lista_asistentes_servidor(Asistentes_List) ->
 
 lista_conferencia_servidor(Conferencia_List) ->
   io:format("Conferencias: ~p~n", [Conferencia_List]).
+
+conferencias_inscritas_servidor(From, Asistente, List, OtherList) ->
+  Tuple = lists:keyfind(Asistente, 2, List),
+  Map =  element(3, Tuple),
+  Conferencias = maps:get(conferencias, Map),
+  lists:foreach(fun(X) -> display_map(From, X, OtherList) end, Conferencias).
+
+asistentes_inscritos_servidor(From, Conferencia, List, OtherList) ->
+  Tuple = lists:keyfind(Conferencia, 2, List),
+  Map =  element(3, Tuple),
+  Asistentes = maps:get(asistentes, Map),
+  lists:foreach(fun(X) -> display_map(From, X, OtherList) end, Asistentes).
+
+display_map(From, Key, List) ->
+  Tuple = lists:keyfind(Key, 2, List),
+  Map =  element(3, Tuple),
+  From ! {sistema, Map}.
 
 %% Se lleva a cabo el registro de Asistentes en el Servidor
 registra_asistente_servidor(From, Asistente, Nombre, Asistentes_List) ->
@@ -128,6 +160,22 @@ inscribe_conferencia_conferencia(Asistente, Conferencia, List) ->
   Tuple = lists:keyfind(Conferencia, 2, List),
   Map =  element(3, Tuple),
   NewAsistentes = [Asistente | maps:get(asistentes, Map)],
+  NewMap = maps:update(asistentes, NewAsistentes, Map),
+  NewTuple = setelement(3, Tuple, NewMap),
+  lists:keyreplace(Conferencia, 2, List, NewTuple).
+
+desinscribe_conferencia_asistente(Asistente, Conferencia, List) ->
+  Tuple = lists:keyfind(Asistente, 2, List),
+  Map =  element(3, Tuple),
+  NewConferencias = lists:delete(Conferencia, maps:get(conferencias, Map)),
+  NewMap = maps:update(conferencias, NewConferencias, Map),
+  NewTuple = setelement(3, Tuple, NewMap),
+  lists:keyreplace(Asistente, 2, List, NewTuple).
+
+desinscribe_conferencia_conferencia(Asistente, Conferencia, List) ->
+  Tuple = lists:keyfind(Conferencia, 2, List),
+  Map =  element(3, Tuple),
+  NewAsistentes = lists:delete(Asistente, maps:get(asistentes, Map)),
   NewMap = maps:update(asistentes, NewAsistentes, Map),
   NewTuple = setelement(3, Tuple, NewMap),
   lists:keyreplace(Conferencia, 2, List, NewTuple).
@@ -179,6 +227,9 @@ asistente(Server_Node) ->
     {monitor, PID} ->
       monitor(process, PID),
       io:format("link!~n");
+    {inscritas, Asistente} ->
+      {sistema, Server_Node} ! {self(), inscritas, Asistente},
+      await_result();
     {'DOWN', Ref, process, Pid2, Reason} ->
             io:format("Server exiting, got ~p~n", [{'DOWN', Ref, process, Pid2, Reason}]),
             exit(self(), kill);
